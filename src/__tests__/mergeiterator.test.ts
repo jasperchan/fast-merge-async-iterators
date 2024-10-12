@@ -225,5 +225,56 @@ describe("merge", () => {
       }
       expect(thrown).toBe(error);
     });
+
+    test("test time intervals with concurrency limit", async () => {
+      const done = new Deferred();
+      const it = merge(
+        { concurrency: 2 },
+        (async function* () {
+          yield 1;
+          await sleep(1);
+          yield 1;
+          await sleep(1);
+          yield 1;
+        })(),
+        repeat(2, 5, 333),
+        repeat(3, Infinity, 555, done.resolve),
+        (async function* () {
+          await sleep(777);
+          yield 4;
+        })(),
+        (async function* () {
+          await sleep(1777);
+          throw 10;
+        })()
+      );
+      await expect(it.next()).resolves.toEqual({ value: 1, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 2, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 1, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 1, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 2, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 2, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 2, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 2, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 4, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).resolves.toEqual({ value: 3, done: false });
+      await expect(it.next()).rejects.toBe(10); // 1777
+      await expect(it.next()).resolves.toEqual({
+        value: undefined,
+        done: true,
+      });
+      await expect(it.next()).resolves.toEqual({
+        value: undefined,
+        done: true,
+      });
+      await done.promise;
+    });
   });
 });

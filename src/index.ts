@@ -2,8 +2,29 @@ type AsyncIter<T> = AsyncIterator<T> | AsyncIterable<T>;
 
 type Mode = "iters-noclose" | "iters-close-nowait" | "iters-close-wait";
 
+interface MergeOptions {
+  mode?: Mode;
+  /**
+   * Maximum number of concurrent iterators to read from. Unset or 0 means Infinity. Default is 0.
+   */
+  concurrency?: number;
+}
+
+function isAsyncIteratorOrIterable<T>(value: unknown): value is AsyncIter<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (Symbol.asyncIterator in value || Symbol.iterator in value)
+  );
+}
+
 export default function merge<TArray extends Array<AsyncIter<any>>>(
   mode: Mode,
+  ...iters: TArray
+): AsyncIterableIterator<TArray extends Array<AsyncIter<infer T>> ? T : never>;
+
+export default function merge<TArray extends Array<AsyncIter<any>>>(
+  options: MergeOptions,
   ...iters: TArray
 ): AsyncIterableIterator<TArray extends Array<AsyncIter<infer T>> ? T : never>;
 
@@ -12,18 +33,21 @@ export default function merge<TArray extends Array<AsyncIter<any>>>(
 ): AsyncIterableIterator<TArray extends Array<AsyncIter<infer T>> ? T : never>;
 
 export default async function* merge(...args: any[]) {
-  const mode =
-    typeof args[0] === "string" ? (args.shift() as Mode) : "iters-close-nowait";
-  const iters = args;
-
+  if (args.length === 0) {
+    return;
+  }
+  const optionsOrMode = isAsyncIteratorOrIterable(args[0]) ? {} : args.shift();
+  const options =
+    typeof optionsOrMode === "string" ? { mode: optionsOrMode } : optionsOrMode;
+  const { mode = "iters-close-nowait", concurrency = 0 } = options;
+  const iters = args.map<AsyncIterator<any>>((iter) =>
+    Symbol.asyncIterator in iter ? (iter as any)[Symbol.asyncIterator]() : iter
+  );
+  const active =
+    concurrency && concurrency > 0 ? iters.slice(0, concurrency) : iters;
+  const queued = concurrency && concurrency > 0 ? iters.slice(concurrency) : [];
   const promises = new Map(
-    iters
-      .map<AsyncIterator<any>>((iter) =>
-        Symbol.asyncIterator in iter
-          ? (iter as any)[Symbol.asyncIterator]()
-          : iter
-      )
-      .map((iterator) => [iterator, next(iterator)])
+    active.map((iterator) => [iterator, next(iterator)])
   );
 
   try {
@@ -40,6 +64,10 @@ export default async function* merge(...args: any[]) {
       const [res, iterator] = reply;
       if (res.done) {
         promises.delete(iterator);
+        const nextIterator = queued.shift();
+        if (nextIterator) {
+          promises.set(nextIterator, next(nextIterator));
+        }
       } else {
         yield res.value;
         promises.set(iterator, next(iterator));

@@ -27,6 +27,20 @@ for await (merge("iters-close-wait", gen1(), gen2(), gen3())) { ... }
 
 <a href="https://imgflip.com/i/4d7gwx"><img src="https://i.imgflip.com/4d7gwx.jpg" title="made at imgflip.com"/></a>
 
+## Added In The Fork
+
+- First argument can be an options object:
+
+```ts
+interface MergeOptions {
+  mode?: Mode;
+  /**
+   * Maximum number of concurrent iterators to read from. Unset or 0 means Infinity. Default is 0.
+   */
+  concurrency?: number;
+}
+```
+
 ## Usage Example
 
 ```ts
